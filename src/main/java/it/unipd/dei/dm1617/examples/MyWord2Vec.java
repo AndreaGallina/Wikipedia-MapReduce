@@ -46,7 +46,8 @@ public class MyWord2Vec {
     Map word2Vec = word2VecModel.getVectors();
 
 
-    // Da qui non so come leggere 
+    // Da qui non so come leggere i valori dei vari vettori perché
+    // word2Vec è di tipo scala.collection.immutable.Map e quindi boh
 
   }
 
