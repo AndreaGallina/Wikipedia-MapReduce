@@ -1,0 +1,40 @@
+plugins {
+    id 'com.github.johnrengelman.shadow' version '1.2.4'
+}
+
+group 'it.unipd.dei.dm1617'
+version '1.0-SNAPSHOT'
+
+apply plugin: 'java'
+apply plugin: 'application'
+
+sourceCompatibility = 1.8
+
+mainClassName = "it.unipd.dei.dm1617.examples.TfIdfTransformation"
+applicationDefaultJvmArgs = ["-Dspark.master=local"]
+
+jar {
+    zip64 = true
+}
+
+shadowJar {
+    zip64 = true
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    compile group: 'org.apache.spark', name: 'spark-core_2.11', version: '2.1.0'
+    compile group: 'org.apache.spark', name: 'spark-mllib_2.11', version: '2.1.0'
+    compile group: 'it.unimi.dsi', name: 'fastutil', version: '7.1.0'
+    compile group: 'edu.stanford.nlp', name: 'stanford-corenlp', version: '3.7.0'
+    compile group: 'edu.stanford.nlp', name: 'stanford-corenlp', version: '3.7.0', classifier: 'models-english'
+}
+
+task showDepsClasspath() {
+    doLast {
+        println(configurations.runtime.each { it.path }.join(':'))
+    }
+}

@@ -1,0 +1,7 @@
+.gradle
+.idea
+/build
+/small-dataset-lemmas
+/small-sample.dat.bz2
+/spark-warehouse
+medium-sample.dat.bz2
