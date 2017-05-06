@@ -1,8 +1,10 @@
 package it.unipd.dei.dm1617.examples;
 
-import it.unipd.dei.dm1617.InputOutput;
-import it.unipd.dei.dm1617.WikiPage;
+import it.unipd.dei.dm1617.*;
 import org.apache.spark.SparkConf;
+import org.apache.spark.mllib.linalg.Vector;
+import org.apache.spark.mllib.linalg.SparseVector;
+import org.apache.spark.mllib.linalg.DenseVector;
 import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.JavaSparkContext;
 
@@ -71,26 +73,34 @@ public class Partition {
 		}
 	}
 
-	/*private static class Document implements Serializable {
+	private static class Document implements Serializable {
 
-		private String name;
-		private List<Word> words;
+		private Vector tfidf;
+		private Vector center;
 
-		public Document(String name, List<Word> words) {
-			this.name = name;
-			this.words = words;
+		public Document(Vector tfidf) {
+			this.tfidf = tfidf;
 		}
 
-		public String getName() {
-			return name;
+		public Document(Vector tfidf, Vector center) {
+			this.tfidf = tfidf;
+			this.center = center;
 		}
 
-		public List<Word> getWords() {
-			return words;
+		public Vector getDocumentVector() {
+			return tfidf;
 		}
-	}*/
 
-	// Returns the dot product between the input vectors.
+		public Vector getCenter() {
+			return center;
+		}
+
+		public void setCenter(Vector center) {
+			this.center = center;
+		}
+	}
+
+	// Returns the dot product between the input Word vectors.
 	public static double componentWiseProduct(Word w1, Word w2) {
 		List<Double> coordinates1 = w1.getCoordinates();
 		List<Double> coordinates2 = w2.getCoordinates();
@@ -102,7 +112,17 @@ public class Partition {
 		return product;
 	}
 
-	// Returns the norm of the input vector.
+	// Returns the dot product between the input double vectors.
+	public static double componentWiseProduct(double[] v1, double[] v2) {
+		double product = 0;
+		int size = v1.length;
+		for (int i=0; i<size; i++)
+			product += v1[i]*v2[i];
+			//System.out.println("Product between " + w1.getName() + " and " + w2.getName() + ": " + product);
+		return product;
+	}
+
+	// Returns the norm of the input Word vector.
 	public static double norm(Word w1) {
 		List<Double> coordinates = w1.getCoordinates();
 		double norm = 0;
@@ -113,14 +133,29 @@ public class Partition {
 		return Math.sqrt(norm);
 	}
 
-	// Returns the euclidean distance between two input vectors.
+	// Returns the norm of the input double vector.
+	public static double norm(double[] v1) {
+		double norm = 0;
+		int size = v1.length;
+		for (int i=0; i<size; i++)
+			norm += Math.pow(v1[i],2);
+		//System.out.println("Squared norm of " + w1.getName() + ": " + norm);
+		return Math.sqrt(norm);
+	}
+
+	// Returns the euclidean distance between two input Word vectors.
 	public static double euclideanDistance(Word w1, Word w2) {
 		return Math.sqrt(Math.pow((w1.getNumber()-w2.getNumber()),2));
 	}
 
-	// Returns the euclidean distance between two input vectors.
+	// Returns the cosine distance between two input Word vectors.
 	public static double cosineDistance(Word w1, Word w2) {
 		return Math.acos(componentWiseProduct(w1,w2)/(norm(w1)*norm(w2)))/(Math.PI/2);
+	}
+
+	// Returns the cosine distance between two input double vectors.
+	public static double cosineDistance(double[] v1, double[] v2) {
+		return Math.acos(componentWiseProduct(v1,v2)/(norm(v1)*norm(v2)))/(Math.PI/2);
 	}
 
 	// Partitions a mockup dataset with points belonging to a multidimensional metric space.
@@ -185,6 +220,33 @@ public class Partition {
 	    System.out.println("Multidimensional partitioning completed");
 	}
 
+	// Partitions the input document collection into clusters whose centers are represented by the centers vector.
+	public static void documentPartitioning(JavaRDD<Vector> tfidf, List<Vector> centers) {
+	    JavaRDD<Document> dPartitions = tfidf.map((v) -> {
+	    	System.out.println("Computing closest center");
+   			double minDist = cosineDistance(v.toDense().values(),centers.get(0).toDense().values());
+   			System.out.println("Cosine distance between vector and center #0: " + minDist);
+   			int closestCenter = 0;
+   			for (int i=1; i<centers.size(); i++) {
+   				double tempDist = cosineDistance(v.toDense().values(),centers.get(i).toDense().values());
+   				System.out.println("Cosine distance between vector and center #" + i + " : " + tempDist);
+   				if (minDist > tempDist) {
+   					minDist = tempDist;
+   					closestCenter = i;
+   				}
+   			}
+   			Document d = new Document(v,centers.get(closestCenter));
+   		    System.out.println("Cosine distance between vector and its closest center: " + minDist);
+   			return d;
+	    });
+
+	    List<Document> partitions = dPartitions.collect();
+   		for(int i=0; i<partitions.size(); i++)
+   			System.out.println("Center of " + i + ": " + partitions.get(i).getCenter());
+
+	    System.out.println("Document partitioning completed");
+	}
+
 	// Partitions a mockup dataset with points belonging to a one-dimensional metric space. Test method, do not mind it.
 	public static void oneDimensionalPartitioning() {
 		// Usual setup
@@ -243,13 +305,14 @@ public class Partition {
 	    Logger.getLogger("org").setLevel(Level.OFF);
 	    Logger.getLogger("akka").setLevel(Level.OFF);
 
-		if(args.length != 0 && Integer.parseInt(args[0]) == 0) {
-			System.out.println("One-dimensional partitioning...");
-			oneDimensionalPartitioning();
-		} else {
-			System.out.println("Multidimensional partitioning...");
-			multiDimensionalPartitioning();
-		}
+	    if(args.length != 0)
+			if(Integer.parseInt(args[0]) == 0) {
+				System.out.println("One-dimensional partitioning...");
+				oneDimensionalPartitioning();
+			} else if (Integer.parseInt(args[0]) == 1) {
+				System.out.println("Multidimensional partitioning...");
+				multiDimensionalPartitioning();
+			}
 	}
 
 }
