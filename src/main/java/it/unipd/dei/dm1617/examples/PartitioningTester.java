@@ -35,17 +35,6 @@ public class PartitioningTester {
     SparkConf conf = new SparkConf(true).setAppName("DMProject");
     JavaSparkContext sc = new JavaSparkContext(conf);
 
-    
-    // ---------- UNCOMMENT THIS ON FIRST RUN --------------- //
-    // Lemmatize pages and saves them to a file so that we dont have to recompute the
-    // lematization everytime
-    // 
-    // //Load dataset of pages
-    // JavaRDD<WikiPage> pages = InputOutput.read(sc, dataPath);
-    // 
-    // JavaRDD<WikiPage> lemmatizedPages = Lemmatizer.lemmatizeWikiPages(pages).cache();
-    // InputOutput.write(lemmatizedPages, "small-dataset-lemmas");
-    
     // Reads lemmatized wikipedia pages
 
     JavaRDD<WikiPage> lemmatizedPages = InputOutput.read(sc, "small-dataset-lemmas").cache();
@@ -80,19 +69,17 @@ public class PartitioningTester {
     for(int i=0; i<randomCenters.size(); i++)
         System.out.println("Chosen document #" + i + ": " + randomDocuments.get(i));
 
-    /*
-    SparseVector doc = randomDocuments.get(0).toSparse();
-    double[] docValues = doc.values();
-    for(int i=0; i<docValues.length; i++)
-        System.out.println("docValues[" + i + "] = " + docValues[i]);
-    */
-
     // Parallelizes the randomDocuments. Again, this operation is necessary for
     // testing purposes as the partitioning function works with RDDs.
     JavaRDD<Vector> dRandomDocuments = sc.parallelize(randomDocuments, sc.defaultParallelism());
 
     // Partitions the documents into clusters.
-    Partition.documentPartitioning(dRandomDocuments,randomCenters);
+    JavaRDD<Tuple2<Vector, Vector>> dPartitions = Partition.documentPartitioning(dRandomDocuments,randomCenters);
+
+    List<Tuple2<Vector, Vector>> partitions = dPartitions.collect();
+    for(int i=0; i<partitions.size(); i++)
+        System.out.println("Center of " + i + ": " + partitions.get(i)._2());
+
 
     // Uncomment the next line and comment the previous line to run the
     // partitioning on the whole dataset.

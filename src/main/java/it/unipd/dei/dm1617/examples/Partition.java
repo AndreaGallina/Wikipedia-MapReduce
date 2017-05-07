@@ -7,6 +7,7 @@ import org.apache.spark.mllib.linalg.SparseVector;
 import org.apache.spark.mllib.linalg.DenseVector;
 import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.JavaSparkContext;
+import scala.Tuple2;
 
 import java.util.Arrays;
 import java.util.ArrayList;
@@ -73,6 +74,8 @@ public class Partition {
 		}
 	}
 
+	// Class representing a document with its corpus and the center of the
+	// cluster it belongs to.
 	private static class Document implements Serializable {
 
 		private Vector tfidf;
@@ -154,11 +157,13 @@ public class Partition {
 	}
 
 	// Returns the cosine distance between two input double vectors.
+	// Deprecated. Use the one defined in Distance.java instead.
 	public static double cosineDistance(double[] v1, double[] v2) {
 		return Math.acos(componentWiseProduct(v1,v2)/(norm(v1)*norm(v2)))/(Math.PI/2);
 	}
 
-	// Partitions a mockup dataset with points belonging to a multidimensional metric space.
+	// Partitions a mockup dataset with points belonging to a multidimensional
+	// metric space.
 	public static void multiDimensionalPartitioning() {
 	    // Usual setup.
 	    SparkConf conf = new SparkConf(true).setAppName("Partition");
@@ -193,7 +198,8 @@ public class Partition {
    		// Splits the work among numPartitions partitions.
    		JavaRDD<Word> dWords = sc.parallelize(numbers, numPartitions);
 
-   		// Assigns a center to each point using cosine distance (see Partition algorithm on the powerpoint).
+   		// Assigns a center to each point using cosine distance (see Partition
+   		// algorithm on the powerpoint).
    		JavaRDD<Word> dPartitions = dWords.map((w) -> {
    			System.out.println("Computing closest center for " + w.getName());
    			double minDist = cosineDistance(w,centers.get(0));
@@ -220,8 +226,9 @@ public class Partition {
 	    System.out.println("Multidimensional partitioning completed");
 	}
 
-	// Partitions the input document collection into clusters whose centers are represented by the centers vector.
-	public static void documentPartitioning(JavaRDD<Vector> tfidf, List<Vector> centers) {
+	// Partitions the input document collection into clusters whose centers are
+	// represented by the centers vector. Testing method.
+	public static void simpleDocumentPartitioning(JavaRDD<Vector> tfidf, List<Vector> centers) {
 	    JavaRDD<Document> dPartitions = tfidf.map((v) -> {
 	    	System.out.println("Computing closest center");
    			double minDist = cosineDistance(v.toDense().values(),centers.get(0).toDense().values());
@@ -244,10 +251,36 @@ public class Partition {
    		for(int i=0; i<partitions.size(); i++)
    			System.out.println("Center of " + i + ": " + partitions.get(i).getCenter());
 
-	    System.out.println("Document partitioning completed");
+	    System.out.println("Simple document partitioning completed");
 	}
 
-	// Partitions a mockup dataset with points belonging to a one-dimensional metric space. Test method, do not mind it.
+	// Partitions the input document collection into clusters whose centers are
+	// represented by the centers vector and returns the corresponding RDD.
+	// This is the method to use in the application.
+	public static JavaRDD<Tuple2<Vector, Vector>> documentPartitioning(JavaRDD<Vector> tfidf, List<Vector> centers) {
+	    JavaRDD<Tuple2<Vector, Vector>> dPartitions = tfidf.map((v) -> {
+	    	System.out.println("Computing closest center");
+   			double minDist = Distance.cosineDistance(v,centers.get(0));
+   			System.out.println("Cosine distance between vector and center #0: " + minDist);
+   			int closestCenter = 0;
+   			for (int i=1; i<centers.size(); i++) {
+   				double tempDist = Distance.cosineDistance(v,centers.get(i));
+   				System.out.println("Cosine distance between vector and center #" + i + " : " + tempDist);
+   				if (minDist > tempDist) {
+   					minDist = tempDist;
+   					closestCenter = i;
+   				}
+   			}
+   			Tuple2<Vector, Vector> tuple = new Tuple2<>(v,centers.get(closestCenter));
+   		    System.out.println("Cosine distance between vector and its closest center: " + minDist);
+   			return tuple;
+	    });
+	    System.out.println("Document partitioning completed");
+	    return dPartitions;
+	}
+
+	// Partitions a mockup dataset with points belonging to a one-dimensional
+	// metric space.Test method, do not mind it.
 	public static void oneDimensionalPartitioning() {
 		// Usual setup
 	    SparkConf conf = new SparkConf(true).setAppName("Partition");
