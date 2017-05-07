@@ -66,7 +66,7 @@ public class DMProject {
     // In this case we also cache the dataset because the next step,
     // IDF, will perform two passes over it.
     JavaRDD<Vector> tf = new CountVectorizer()
-      .setVocabularySize(100)
+      .setVocabularySize(300)
       .transform(lemmas)
       .cache();
 
@@ -83,21 +83,36 @@ public class DMProject {
 
 
 
-    int[] numClusters = {1, 2, 3, 4, 5, 6};
+    int[] numClusters = {9500};
     int maxIterations = 1000;
     
-    // Trying different values of K
     for(int k : numClusters)
-    {    
-        KMeansModel clusters = KMeans.train(tfidf.rdd(), k, maxIterations);
-
-        
-        double cost = clusters.computeCost(tfidf.rdd());
-        System.out.println("Cost: " + cost);
+    {
+        long start = System.nanoTime();
         System.out.println("");
         System.out.println("");
+        KMedoids kmed = new KMedoids(k, maxIterations, 1000L);
+        kmed.run(tfidf, sc);
+        double finish = (System.nanoTime() - start) / 1e9;
+        System.out.println("Done for k="+k+" in "+finish);
     }
 
+    
+    for(int k : numClusters)
+    {    
+        long start = System.nanoTime();
+
+        KMeansModel clusters = KMeans.train(tfidf.rdd(), k, maxIterations, "random", 1000L);
+        
+        
+        double cost = clusters.computeCost(tfidf.rdd());
+        System.out.println("");
+        System.out.println("");
+        System.out.println("Cost: " + cost);
+
+        double finish = (System.nanoTime() - start) / 1e9;
+        System.out.println("Done for k="+k+" in "+finish);   
+    }
 
 
   }
