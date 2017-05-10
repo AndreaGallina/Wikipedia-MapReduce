@@ -28,7 +28,7 @@ public class VectorWithNorm implements Serializable{
 		this(vec, Vectors.norm(vec, 2.0));
 	}
 
-	public int setCenterIndex(int index){
+	public void setCenterIndex(int index){
 		this.centerIndex = index;
 	}
 }
