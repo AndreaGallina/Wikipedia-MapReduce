@@ -83,8 +83,10 @@ public class DMProject {
 
 
 
-    int[] numClusters = {9500};
+    int[] numClusters = {9000};
     int maxIterations = 1000;
+
+    System.out.println("Total points:" + tfidf.count());
     
     for(int k : numClusters)
     {

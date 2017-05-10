@@ -136,107 +136,127 @@ public class KMedoids implements Serializable{
 	// }
 
 	private void runAlgorithmMedoids(JavaRDD<VectorWithNorm> data, JavaSparkContext sc){
+ 
+        List<VectorWithNorm> centers = new ArrayList<>(initRandom(data));
+ 
+        boolean converged = false;
+        double cost = 0.0;
+        int iteration = 0;
+ 
+        while(iteration < maxIterations && !converged)
+        {
+            System.out.println("Inizio iterazione " + iteration);
+            DoubleAccumulator costAccum = sc.sc().doubleAccumulator();
+            Broadcast<List<VectorWithNorm>> bcCenters = sc.broadcast(centers);
+ 
+            Map<Integer, Tuple2<List<VectorWithNorm>, Double>> totalContribs = data.mapPartitionsToPair((points) -> {
+                List<VectorWithNorm> thisCenters = bcCenters.value();
+                int dims = thisCenters.get(0).vector.size(); // dimension of a vector representing a document (equal to "vocabSize")
+ 
+                List<List<VectorWithNorm>> thisPartition = new ArrayList<List<VectorWithNorm>>(k);
+                for(int i=0; i<k; i++)
+                    thisPartition.add(new ArrayList<VectorWithNorm>());
+                double[] thisCost = new double[k];
+                Arrays.fill(thisCost, 0.0);
+ 
+                while(points.hasNext()){
+                    VectorWithNorm point = points.next();
+                    if(point.vector.numNonzeros()!=0){
+	                    Tuple2<Integer, Double> bestPartition = findClosestCosine(thisCenters, point);
+	                    // bestPartition._1 contains the index of the cluster to which this point as been assigned
+	                    // bestPartition._2 indicates the cost (i.e. the distance) between the center of the cluster and this point
+	                    costAccum.add(bestPartition._2);
+	                  
+	                    thisPartition.get(bestPartition._1).add(point);
+	                    thisCost[bestPartition._1] += bestPartition._2;
+	                }
+                }
+ 
+                List<Tuple2<Integer, Tuple2<List<VectorWithNorm>, Double>>> partitions = new ArrayList<>();
+ 
+                // for each cluster, initialize a tuple2 containing the index of the cluster,
+                // the list of the points belonging to that cluster, and the total cost of the points for that cluster
+                for(int i=0; i<k; i++)
+                {
+                    if(thisPartition.get(i).size()>0)
+                        partitions.add(new Tuple2<>(i, new Tuple2<>(thisPartition.get(i), thisCost[i])));
+                }
+ 
+                return partitions.iterator();
+            }).reduceByKey((tuple1, tuple2) -> {
+                // merges all the points belonging to one cluster assigned by the different workers
+                List<VectorWithNorm> clusterPoints = new ArrayList<VectorWithNorm>();
+                clusterPoints.addAll(tuple1._1);
+                clusterPoints.addAll(tuple2._1);
+ 
+                double clusterCost = tuple1._2 + tuple2._2;
+                return new Tuple2<>(clusterPoints, clusterCost);
+            }).collectAsMap();
+            System.out.println("Partizionamento completato iterazione " + iteration);
+            bcCenters.destroy();
 
-		List<VectorWithNorm> centers = new ArrayList<>(initRandom(data));
+            // int numPoints = 0;
+            // for(Map.Entry<Integer, Tuple2<List<VectorWithNorm>, Double>> entry : totalContribs.entrySet()) {
+            // 	System.out.println("Cost for cluster "+entry.getKey()+": "+entry.getValue()._2+"; Number of points: "+entry.getValue()._1.size());
+            // 	numPoints+=entry.getValue()._1.size();
+            // }
 
-		boolean converged = false;
-		double cost = 0.0;
-		int iteration = 0;
-
-		while(iteration < maxIterations && !converged)
-		{
-			DoubleAccumulator costAccum = sc.sc().doubleAccumulator();
-			Broadcast<List<VectorWithNorm>> bcCenters = sc.broadcast(centers);
-
-			Map<Integer, Tuple2<List<VectorWithNorm>, Double>> totalContribs = data.mapPartitionsToPair((points) -> {
-				List<VectorWithNorm> thisCenters = bcCenters.value();
-				int dims = thisCenters.get(0).vector.size(); // dimension of a vector representing a document (equal to "vocabSize")
-
-				List<List<VectorWithNorm>> thisPartition = new ArrayList<List<VectorWithNorm>>();
-				double[] thisCost = new double[k];
-				Arrays.fill(thisCost, 0.0);
-
-				while(points.hasNext()){
-					VectorWithNorm point = points.next();
-					Tuple2<Integer, Double> bestPartition = findClosestCosine(thisCenters, point);
-					// bestPartition._1 contains the index of the cluster to which this point as been assigned
-					// bestPartition._2 indicates the cost (i.e. the distance) between the center of the cluster and this point 
-					costAccum.add(bestPartition._2);
-					thisPartition.get(bestPartition._1).add(point);
-					thisCost[bestPartition._1] += bestPartition._2;
-				}
-
-				List<Tuple2<Integer, Tuple2<List<VectorWithNorm>, Double>>> partitions = new ArrayList<>();
-
-				// for each cluster, initialize a tuple2 containing the index of the cluster,
-				// the list of the points belonging to that cluster, and the total cost of the points for that cluster
-				for(int i=0; i<k; i++)
-				{
-					if(thisPartition.get(i).size()>0)
-						partitions.add(new Tuple2<>(i, new Tuple2<>(thisPartition.get(i), thisCost[i])));
-				}
-
-				return partitions.iterator();
-			}).reduceByKey((tuple1, tuple2) -> {
-				// merges all the points belonging to one cluster assigned by the different workers
-				List<VectorWithNorm> clusterPoints = new ArrayList<VectorWithNorm>();
-				clusterPoints.addAll(tuple1._1);
-				clusterPoints.addAll(tuple2._1);
-
-				double clusterCost = tuple1._2 + tuple2._2;
-				return new Tuple2<>(clusterPoints, clusterCost);
-			}).collectAsMap();
-
-			bcCenters.destroy();
-
-			// Adesso totalContribs contiene tutti i punti appartenenti ad un dato cluster assieme al costo di quel cluster
-			// all'interno di una mappa. La struttura è qualcosa di questo tipo:
-			// ---------------------------------------------------
-			// | ClusterIndex | Points          		  | Cost |
-			// ---------------------------------------------------
-			// |            0 | ArrayList<VectorWithNorm> | 15.3 |
-			// |            1 | ArrayList<VectorWithNorm> | 152.8|
-			// ---------------------------------------------------
-			// 
-			// Quindi per andare a calcolare il nuovo medoide servirà fare qualcosa di questo tipo;
-			// 
-			// 
-			// 
-			// Foreach(entry in totalContribs)
-			//   int i = entry.getKey()
-			//   List<VectorWithNorm> points = entry.getValue()._1
-			//   double clusterCost = entry.getValue()._2
-			//   double minCost = Double.POSITIVE_INFINITY;
-			//   if(clusterCost!=0.0) // Calcola solo se ci sono punti nel cluster
-			//   	foreach(point in points) // per ogni punto del cluster i
-			//   		double newCost = calculateClusterCost(points, point) // calcola la funzione costo utilizzando come "point" come medoide
-			//   		if(newCost<minCost)
-			//   			minCost = newCost;
-			//   			centers.set(i, point) // imposta come nuovo medoide il punto corrente
-			//
-			// converged = true
-			// for(i=0 to k)
-			//   * controlla che la nuova distanza dei nuovi medoidi dai vecchi sia > epsilon*epsilon *
-			//   * oppure si può semplicemente controllare se il vecchio costo sia migliore di un certo epsilon rispetto al vecchio *
-
-
-
-
-
-			// converged = true;
-			// for(int i=0; i<medoids.size(); i++)
-			// {
-			// 	VectorWithNorm newCenter = medoids.get(i);
-			// 	if (converged && cosineDistance(newCenter, centers.get(i)) > epsilon*epsilon)
-			// 		converged = false;
-			// 	centers.set(i, newCenter);
-			// }
-
-			cost = costAccum.value();
-			iteration++;
-		}
-		System.out.println("KMedoids converged in "+iteration+" iterations with cost "+cost);
-	}
+ 
+            // Adesso totalContribs contiene tutti i punti appartenenti ad un dato cluster assieme al costo di quel cluster
+            // all'interno di una mappa. La struttura è qualcosa di questo tipo:
+            // ---------------------------------------------------
+            // | ClusterIndex | Points                    | Cost |
+            // ---------------------------------------------------
+            // |            0 | ArrayList<VectorWithNorm> | 15.3 |
+            // |            1 | ArrayList<VectorWithNorm> | 152.8|
+            // ---------------------------------------------------
+            //
+            // Quindi per andare a calcolare il nuovo medoide servirà fare qualcosa di questo tipo;
+            //
+            //
+            //
+            // Foreach(entry in totalContribs)
+            //   int i = entry.getKey()
+            //   List<VectorWithNorm> points = entry.getValue()._1
+            //   double clusterCost = entry.getValue()._2
+            //   double minCost = Double.POSITIVE_INFINITY;
+            //   if(clusterCost!=0.0) // Calcola solo se ci sono punti nel cluster
+            //      foreach(point in points) // per ogni punto del cluster i
+            //          double newCost = calculateClusterCost(points, point) // calcola la funzione costo utilizzando come "point" come medoide
+            //          if(newCost<minCost)
+            //              minCost = newCost;
+            //              centers.set(i, point) // imposta come nuovo medoide il punto corrente
+            //
+            // converged = true
+            // for(i=0 to k)
+            //   * controlla che la nuova distanza dei nuovi medoidi dai vecchi sia > epsilon*epsilon *
+            //   * oppure si può semplicemente controllare se il vecchio costo sia migliore di un certo epsilon rispetto al vecchio *
+ 			
+ 			System.out.println("Inizio calcolo medoidi iterazione " + iteration);
+ 			long start = System.nanoTime();
+            List<Tuple2<Integer, VectorWithNorm>> medoids = new ArrayList<Tuple2<Integer, VectorWithNorm>>();
+ 
+            for(Map.Entry<Integer, Tuple2<List<VectorWithNorm>, Double>> entry : totalContribs.entrySet()) {
+                int i = entry.getKey();
+                List<VectorWithNorm> points = entry.getValue()._1;
+                medoids.add(new Tuple2<>(i,computeMedoid(points)));
+            }
+            double finish = (System.nanoTime() - start) / 1e9;
+            System.out.println("Calcolo medoidi completato iterazione " + iteration + " in "+finish);
+ 
+            converged = true;
+            if (converged && Math.abs(cost-costAccum.value()) > epsilon*epsilon)
+                converged = false;
+            for(Tuple2<Integer, VectorWithNorm> newMedoid : medoids) {
+                centers.set(newMedoid._1(), newMedoid._2()); // sta roba si può fare direttamente dentro al for precedente
+            }
+ 
+            cost = costAccum.value();
+            System.out.println("Fine iterazione " + iteration + "; costo:" + cost);
+            iteration++;
+        }
+        System.out.println("KMedoids converged in "+iteration+" iterations with cost "+cost);
+    }
 
 	/*private List<VectorWithNorm> initRandom(JavaRDD<VectorWithNorm> data)
 	{
