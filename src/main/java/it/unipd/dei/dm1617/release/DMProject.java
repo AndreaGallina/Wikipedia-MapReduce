@@ -59,7 +59,7 @@ public class DMProject {
     // Transform the sequence of lemmas in vectors of counts in a space of the specified number of
     // dimensions, using the said number of top lemmas as the vocabulary.
     JavaRDD<Vector> tf = new CountVectorizer()
-      .setVocabularySize(300)
+      .setVocabularySize(100)
       .transform(lemmas)
       .cache();
 
@@ -72,7 +72,7 @@ public class DMProject {
     int[] numClusters = {9000};
     int maxIterations = 1000;
 
-    System.out.println("Total points:" + tfidf.count() +"\n\n");
+    System.out.println("Total points contained in the dataset:" + tfidf.count() +"\n\n");
     
     // Computes k-median clustering of the TF-IDF dataset.
     for(int k : numClusters) {
