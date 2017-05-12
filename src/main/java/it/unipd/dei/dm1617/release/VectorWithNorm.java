@@ -9,16 +9,16 @@ import java.io.Serializable;
 /**
  * Class representing a vector and its norm.
  */
-public class VectorWithNorm implements Serializable{
+public class VectorWithNorm implements Serializable {
 	Vector vector;
 	double norm;
 
-	public VectorWithNorm(Vector vec, double norm){
+	public VectorWithNorm(Vector vec, double norm) {
 		this.vector = vec;
 		this.norm = norm;
 	}
 	
-	public VectorWithNorm(Vector vec){
+	public VectorWithNorm(Vector vec) {
 		this(vec, Vectors.norm(vec, 2.0));
 	}
 }

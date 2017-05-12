@@ -21,7 +21,6 @@ import java.util.Set;
 import org.apache.log4j.Logger;
 import org.apache.log4j.Level;
 
-
 /**
  * Main class managing the input dataset and the k-median clustering.
  * Reads the input data, lemmatizing it and representing it in TF-IDF format and runs the
@@ -29,55 +28,56 @@ import org.apache.log4j.Level;
  */
 public class DMProject {
 
-    /**
-     * Prints a list of the resulting clustering, showing the title of the wikipedia
-     * pages belonging to each cluster
-     * @param lemmatizedPages [JavaRDD of wikipedia pages]
-     * @param tfidf           [TF-IDF transformation of the pages]
-     * @param kmed            [The trained K-Medoids model]
-     */
-    public static void printClustering(JavaRDD<WikiPage> lemmatizedPages, JavaRDD tfidf, KMedoids kmed){
-        System.out.println("\n\n------- RESULTING CLUSTERING --------");
+  /**
+   * Prints a list of the resulting clustering, showing the title of the wikipedia
+   * pages belonging to each cluster.
+   * @param lemmatizedPages [JavaRDD of wikipedia pages]
+   * @param tfidf           [TF-IDF transformation of the pages]
+   * @param kmed            [The trained K-Medoids model]
+   */
+  public static void printClustering(JavaRDD<WikiPage> lemmatizedPages, JavaRDD tfidf,
+                                     KMedoids kmed) {
+    System.out.println("\n\n------- RESULTING CLUSTERING --------");
 
-        JavaPairRDD<WikiPage, Vector> pagesAndVectors = lemmatizedPages.zip(tfidf);
+    JavaPairRDD<WikiPage, Vector> pagesAndVectors = lemmatizedPages.zip(tfidf);
 
-        List<Tuple2<WikiPage, Vector>> listPagesAndVectors = new ArrayList<Tuple2<WikiPage, Vector>>(pagesAndVectors.collect());
+    List<Tuple2<WikiPage, Vector>> listPagesAndVectors
+        = new ArrayList<Tuple2<WikiPage, Vector>>(pagesAndVectors.collect());
 
-        for(int i = 0; i<kmed.getK(); i++)
-        {
-            // Since each tfidf vector does not have a 1 to 1 correspondence to each WikiPage,
-            // we must use the java collection "Set" which doesn't allow duplicates
-            Set<String> set1 = new HashSet();
-            System.out.println("\n\nK = "+i+ "");
-            for(int j = 0; j< kmed.finalPartition.get(i).size(); j++)
-            {
-                for(Tuple2<WikiPage, Vector> tuple : listPagesAndVectors)
-                {
-                    // We print the title only if it corresponds to a wikipedia page AND if the corresponding title
-                    // has not been printed yet (the method .add(E) of Set returns true only if the element has not yet been added to the set).
-                    if(tuple._2.equals(kmed.finalPartition.get(i).get(j).vector) && set1.add(tuple._1.getTitle()))
-                        System.out.println(tuple._1.getTitle());
-                }            
-            }
-        }
+    for(int i = 0; i<kmed.getK(); i++) {
+      // Since each tfidf vector does not have a 1 to 1 correspondence to each WikiPage,
+      // a java collection "Set" which does not allow duplicates must be used.
+      Set<String> set1 = new HashSet();
+      System.out.println("\n\nK = "+i+ "");
+      for(int j = 0; j< kmed.finalPartition.get(i).size(); j++) {
+        for(Tuple2<WikiPage, Vector> tuple : listPagesAndVectors) {
+          // The title is printed only if it corresponds to a wikipedia page AND if the
+          // corresponding title has not been printed yet (the method .add(E) of Set returns true
+          // only if the element has not yet been added to the set).
+          if(tuple._2.equals(kmed.finalPartition.get(i).get(j).vector)
+              && set1.add(tuple._1.getTitle())) {
+            System.out.println(tuple._1.getTitle());
+          }
+        }            
+      }
     }
+  }
 
   public static void main(String[] args) {
     // Removes all the infoormation shown on terminal by Spark.
     Logger.getLogger("org").setLevel(Level.OFF);
     Logger.getLogger("akka").setLevel(Level.OFF);
 
-    String dataPath = args[0];
-
     // Initializes Spark context.
     SparkConf conf = new SparkConf(true).setAppName("DMProject");
     JavaSparkContext sc = new JavaSparkContext(conf);
 
-    
     // ---------- UNCOMMENT THIS ON FIRST RUN --------------- //
-    // Lemmatize pages and saves them to a file so that we dont have to recompute the
-    // lematization every time.
+    // Lemmatize pages and saves them to a file so that the lemmatization will not have to be
+    // recomputed every time.
     // 
+    // String dataPath = args[0];
+    //
     // //Load dataset of pages
     // JavaRDD<WikiPage> pages = InputOutput.read(sc, dataPath);
     // 
@@ -94,8 +94,7 @@ public class DMProject {
         return new ArrayList<String>(Arrays.asList(p.getText().split(" ")));
     }).cache();
 
-
-    // Transform the sequence of lemmas in vectors of counts in a space of the specified number of
+    // Transforms the sequence of lemmas in vectors of counts in a space of the specified number of
     // dimensions, using the said number of top lemmas as the vocabulary.
     JavaRDD<Vector> tf = new CountVectorizer()
       .setVocabularySize(100)
@@ -112,21 +111,20 @@ public class DMProject {
     int[] numClusters = {900};
     int maxIterations = 1000;
 
-    // In case we need to print the final clustering
+    // Flag used to verify whether to print the final clustering.
     boolean returnFinalClustering = false;
     
     // Computes k-median clustering of the TF-IDF dataset.
     for(int k : numClusters) {
-        long start = System.nanoTime();
-        KMedoids kmed = new KMedoids(k, maxIterations, 1000L, returnFinalClustering);
-        kmed.run(tfidf, sc);
-        double finish = (System.nanoTime() - start) / 1e9;
-        System.out.println("Done for k="+k+" in "+finish);
-        
-        if(returnFinalClustering)
-            printClustering(lemmatizedPages, tfidf, kmed);
+      long start = System.nanoTime();
+      KMedoids kmed = new KMedoids(k, maxIterations, 1000L, returnFinalClustering);
+      kmed.run(tfidf, sc);
+      double finish = (System.nanoTime() - start) / 1e9;
+      System.out.println("Done for k= " + k + " in " + finish + " seconds.");
+      
+      if(returnFinalClustering) {
+        printClustering(lemmatizedPages, tfidf, kmed);
+      }
     }
-
   }
-
 }
