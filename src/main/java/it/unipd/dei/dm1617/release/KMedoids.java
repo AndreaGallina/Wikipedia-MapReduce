@@ -8,7 +8,6 @@ import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.broadcast.Broadcast;
 import org.apache.spark.mllib.linalg.Vector;
-import org.apache.spark.mllib.linalg.SparseVector;
 import org.apache.spark.mllib.linalg.Vectors;
 import org.apache.spark.mllib.linalg.BLAS;
 import org.apache.spark.util.random.XORShiftRandom;
@@ -37,22 +36,10 @@ public class KMedoids implements Serializable {
 																							// printing purposes.
 	boolean returnFinalClustering = false;		  // Whether to return the final clustering.
 
-<<<<<<< HEAD
-	private double eps = 1.0;
-
-	public KMedoids(int k, int maxIterations, long seed){
-=======
 	public KMedoids(int k, int maxIterations, long seed, boolean returnFinalClustering) {
->>>>>>> kMedoids
 		this.k = k;
 		this.maxIterations = maxIterations;
 		this.seed = seed;
-<<<<<<< HEAD
-
-		while ((1.0 + (eps / 2.0)) != 1.0) {
-	      eps /= 2.0;
-	    }
-=======
 		this.returnFinalClustering = returnFinalClustering;
 		if(returnFinalClustering) {
 			finalPartition = new ArrayList<List<VectorWithNorm>>(k);
@@ -64,7 +51,6 @@ public class KMedoids implements Serializable {
 
 	public int getK() {
 		return k;
->>>>>>> kMedoids
 	}
 
 	/**
@@ -306,45 +292,6 @@ public class KMedoids implements Serializable {
 		return new Tuple2<>(bestIndex, bestDistance);
 	}
 
-<<<<<<< HEAD
-
-	/**
-	 * Method derived from the class org.apache.spark.mllib.util.MLUtils and reimplemented
-	 * in Java since the spark version is private.
-	 * @param  v1 [first vector]
-	 * @param  v2 [second vector]
-	 * @return    [squared distance between vectors]
-	 */
-	private double fastSquaredDistance(VectorWithNorm v1, VectorWithNorm v2){
-		Vector vec1 = v1.vector;
-		Vector vec2 = v2.vector;
-		double norm1 = v1.norm;
-		double norm2 = v2.norm;
-		double precision = 1e-6;
-
-		double sumSquaredNorm = norm1 * norm1 + norm2 * norm2;
-	    double normDiff = norm1 - norm2;
-	    double sqDist = 0.0;
-
-	    double precisionBound1 = 2.0 * eps * sumSquaredNorm / (normDiff * normDiff + eps);
-	    if(precisionBound1<precision)
-	    {
-	    	sqDist = sumSquaredNorm - 2.0 * BLAS.dot(vec1,vec2);
-	    }
-	    else if(vec1 instanceof SparseVector || vec2 instanceof SparseVector)
-	    {
-	    	double dotValue = BLAS.dot(vec1, vec2);
-	    	sqDist = Math.max(sumSquaredNorm - 2.0 * dotValue, 0.0);
-	    	double precisionBound2 = eps * (sumSquaredNorm + 2.0 * Math.abs(dotValue)) / (sqDist + eps);
-			if (precisionBound2 > precision) {
-				sqDist = Vectors.sqdist(vec1, vec2);
-			}
-	    }
-	    else 
-	    	sqDist = Vectors.sqdist(v1.vector, v2.vector);
-
-	   	return sqDist;
-=======
 	/**
 	 * Returns the cosine distance between the input vectors.
 	 * @param  v1 [First input vector]
@@ -357,7 +304,6 @@ public class KMedoids implements Serializable {
 	      cosine = 1;
 	    }
 	    return (2 / Math.PI) * Math.acos(cosine);
->>>>>>> kMedoids
 	}
 
 	// Helper method per calcolare il numero di elementi uguali in una lista, non cancellare per il momento
