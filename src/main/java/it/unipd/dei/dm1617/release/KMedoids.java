@@ -258,27 +258,35 @@ public class KMedoids implements Serializable{
 		double bestDistance = Double.POSITIVE_INFINITY;
 		int bestIndex = 0;
 		int i = 0;
-		for(VectorWithNorm medoid : medoids) {
+		boolean isMedoid = false;
 
-			// If the point is one of the medoids, skip the calculation and return directly 
-			// its index and a zero cost. Omitting this check would yield an incorrect
-			// clustering, since the cosine distance between some medoids might be zero
-			// even though they are not equal, with the risk for the medoid to be assigned
-			// to another cluster.
-			if(point.vector.equals(medoid.vector))
-			{
+		// First check if the point is a medoid, so as to skip useless calculations 
+		// and return directly the index of the medoid and a zero cost. 
+		// Omitting this check would yield an incorrect clustering, since the cosine distance
+		// between some medoids might be zero even though they are not equal, with the risk
+		// for the medoid to be assigned to another cluster.
+		for(VectorWithNorm medoid : medoids) {
+			if(point.vector.equals(medoid.vector)) {
+				isMedoid = true;
 				bestIndex = i;
 				bestDistance = 0.0;
 				break;
 			}
-
-			double distance = cosineDistance(medoid, point);
-			if(distance < bestDistance) {
-				bestDistance = distance;
-				bestIndex = i;
-			}
-
 			i++;
+		}
+
+		// If the point is not a medoid then proceed to find the closes medoid.
+		if(!isMedoid) {
+			i = 0;		
+			for(VectorWithNorm medoid : medoids) {
+				double distance = cosineDistance(medoid, point);
+				if(distance < bestDistance) {
+					bestDistance = distance;
+					bestIndex = i;
+				}
+
+				i++;
+			}
 		}
 		return new Tuple2<>(bestIndex, bestDistance);
 	}
