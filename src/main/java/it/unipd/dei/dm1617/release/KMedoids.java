@@ -28,15 +28,29 @@ import java.io.Serializable;
  */
 public class KMedoids implements Serializable{
 
-	private double epsilon = 1e-4;	// Convergeance threshold
-	private int maxIterations;		// Max # of iterations
-	private int k; 					// Number of clusters
-	private long seed;				// Seed of randomness
+	private double epsilon = 1e-4;				// Convergeance threshold
+	private int maxIterations;					// Max # of iterations
+	private int k; 								// Number of clusters
+	private long seed;							// Seed of randomness
+	List<List<VectorWithNorm>> finalPartition;	// List containing the final clustering structure for printing purposes
+	boolean returnFinalClustering = false;		// Whether to return the final clustering
  
-	public KMedoids(int k, int maxIterations, long seed) {
+	public KMedoids(int k, int maxIterations, long seed, boolean returnFinalClustering) {
 		this.k = k;
 		this.maxIterations = maxIterations;
 		this.seed = seed;
+		this.returnFinalClustering = returnFinalClustering;
+		if(returnFinalClustering)
+		{
+			finalPartition = new ArrayList<List<VectorWithNorm>>(k);
+			for(int i=0; i<k; i++)
+				finalPartition.add(new ArrayList<VectorWithNorm>());
+		}
+	}
+
+	public int getK()
+	{
+		return k;
 	}
 
 
@@ -46,13 +60,27 @@ public class KMedoids implements Serializable{
 	 * @param sc   [Spark Context needed to setup some Spark variables (accumulator, broadcast etc.)]
 	 */
 	public void run(JavaRDD<Vector> data, JavaSparkContext sc) {
+		// Filter out the vectors with all components set to zero, since the cosine distance between
+		// a zero-vector and an arbirtrary vector yields an infinite value.
+		JavaRDD<Vector> filteredData = data.filter((v) -> v.numNonzeros()>0);
+
 		// Computes and caches the norms of the input vectors.
-		JavaRDD<Double> norms = data.map((v) -> Vectors.norm(v, 2.0));
+		JavaRDD<Double> norms = filteredData.map((v) -> Vectors.norm(v, 2.0));
 		norms.cache();
 		// Maps the vectors with norm to a JavaRDD.
-		JavaRDD<VectorWithNorm> zippedData = data.zip(norms).map((tuple) -> new VectorWithNorm(tuple._1,tuple._2));
+		JavaRDD<VectorWithNorm> zippedData = filteredData.zip(norms).map((tuple) -> new VectorWithNorm(tuple._1,tuple._2));
+
+
+		// Create an RDD where all the duplicate vectors are filtered out, since the
+		// initial K medoids chosen at random must be distinct.
+		// This will be used only for the initialization of the medoids
+		JavaRDD<Vector> filteredDistinctData = filteredData.distinct();
+		JavaRDD<Double> distinctNorms = filteredDistinctData.map((v) -> Vectors.norm(v, 2.0));
+		JavaRDD<VectorWithNorm> zippedDistinctData = filteredDistinctData.zip(distinctNorms).map((tuple) -> new VectorWithNorm(tuple._1,tuple._2));
+		
+
 		// Runs the clustering algorithm.
-		kMedoids(zippedData,sc);
+		kMedoids(zippedData,zippedDistinctData,sc);
 	}
 
 
@@ -61,9 +89,14 @@ public class KMedoids implements Serializable{
 	 * @param data [JavaRDD containing the dataset of documents]
 	 * @param sc   [Spark Context needed to setup some Spark variables (accumulator, broadcast etc.)]
 	 */
-	private void kMedoids(JavaRDD<VectorWithNorm> data, JavaSparkContext sc) {
- 		// Chooses a list of k random medoids.
-        List<VectorWithNorm> centers = new ArrayList<>(initRandom(data));
+	private void kMedoids(JavaRDD<VectorWithNorm> data, JavaRDD<VectorWithNorm> distinctData, JavaSparkContext sc) {
+ 		// Chooses a list of k random distinct medoids.
+        List<VectorWithNorm> centers = new ArrayList<>(initRandom(distinctData));
+
+        // Warns the user that the data has less than K distinct points, hence the algorithm will
+        // return less than K clusters.
+        if(centers.size()<k)
+        	System.out.println("Could not find k="+k+" distinct medoids; the algorithm will only return k="+centers.size()+" clusters.");
  		
         boolean converged = false;
         double cost = Double.POSITIVE_INFINITY;
@@ -96,21 +129,17 @@ public class KMedoids implements Serializable{
  				
  				// Adds each input point to its respective cluster.
                 while(points.hasNext()){
-
                     VectorWithNorm point = points.next();
 
-                    // Ignores the points with all components set to zero.
-                    if(point.vector.numNonzeros()!=0){
-                    	// Finds the closest medoid to the input point and its distance.
-	                    Tuple2<Integer, Double> bestPartition = findClosestCosine(thisCenters, point);	                    
+                	// Finds the closest medoid to the input point and its distance.
+                    Tuple2<Integer, Double> bestPartition = findClosestCosine(thisCenters, point);	                    
 
-	                    // Increases the objective function cost by the squared distance between
-	                    // the point and its cluster's medoid.
-	                    costAccum.add(Math.pow(bestPartition._2,2));
-	                    
-	                    // Adds the point to its cluster.
-	                    thisPartition.get(bestPartition._1).add(point);
-	                }
+                    // Increases the objective function cost by the squared distance between
+                    // the point and its cluster's medoid.
+                    costAccum.add(Math.pow(bestPartition._2,2));
+                    
+                    // Adds the point to its cluster.
+                    thisPartition.get(bestPartition._1).add(point);
                 }
  				
                 List<Tuple2<Integer, List<VectorWithNorm>>> partitions = new ArrayList<>();
@@ -120,6 +149,8 @@ public class KMedoids implements Serializable{
                 for(int i=0; i<k; i++) {
                     if(thisPartition.get(i).size()>0)
                         partitions.add(new Tuple2<>(i, thisPartition.get(i)));
+                    else
+                    	System.out.println("Cluster "+i+" is empty");
                 }
  
                 return partitions.iterator();
@@ -133,7 +164,7 @@ public class KMedoids implements Serializable{
                 return clusterPoints;
             }).collectAsMap();
 
-            // Removes the broadcast variable.
+            // Destroy the broadcast variable.
             bcCenters.destroy();
             
             System.out.println("Partizionamento completato iterazione " + iteration);
@@ -160,7 +191,19 @@ public class KMedoids implements Serializable{
  			// the one computed during the previous iteration is not greater than the specified 
  			// threshold, then the objective function still has not converged.
             if (Math.abs(cost-costAccum.value()) < epsilon)
+            {
                 converged = true;
+
+                // If the user wants the final clustering, add each point to the finalPartition
+                if(returnFinalClustering)
+                { 
+	                for(Map.Entry<Integer, List<VectorWithNorm>> entry : totalContribs.entrySet()) {
+	                	int i = entry.getKey();
+	                	List<VectorWithNorm> points = entry.getValue();
+	                	finalPartition.get(i).addAll(points);
+	                }
+	            }
+            }
 
             
  			// Updates the cost.
@@ -215,12 +258,26 @@ public class KMedoids implements Serializable{
 		double bestDistance = Double.POSITIVE_INFINITY;
 		int bestIndex = 0;
 		int i = 0;
-		for(VectorWithNorm center : medoids) {
-			double distance = cosineDistance(center, point);
+		for(VectorWithNorm medoid : medoids) {
+
+			// If the point is one of the medoids, skip the calculation and return directly 
+			// its index and a zero cost. Omitting this check would yield an incorrect
+			// clustering, since the cosine distance between some medoids might be zero
+			// even though they are not equal, with the risk for the medoid to be assigned
+			// to another cluster.
+			if(point.vector.equals(medoid.vector))
+			{
+				bestIndex = i;
+				bestDistance = 0.0;
+				break;
+			}
+
+			double distance = cosineDistance(medoid, point);
 			if(distance < bestDistance) {
 				bestDistance = distance;
 				bestIndex = i;
 			}
+
 			i++;
 		}
 		return new Tuple2<>(bestIndex, bestDistance);
@@ -238,5 +295,26 @@ public class KMedoids implements Serializable{
 	    if (cosine > 1.0)
 	        cosine = 1;
 	    return (2 / Math.PI) * Math.acos(cosine);
-	 }
+	}
+
+	// Helper method per calcolare il numero di elementi uguali in una lista, non cancellare per il momento
+	// public Set<Vector> findDuplicates(List<VectorWithNorm> listContainingDuplicates)
+	// { 
+	// 	final Set<Vector> setToReturn = new HashSet(); 
+	// 	final Set<Vector> set1 = new HashSet();
+	// 	int numDuplicates = 0;
+
+	// 	for (VectorWithNorm vec : listContainingDuplicates)
+	// 	{
+	// 		if (set1.add(vec.vector))
+	// 		{
+	// 			setToReturn.add(vec.vector);
+	// 		}
+	// 		else
+	// 			numDuplicates++;
+	// 	}
+
+	// 	System.out.println(numDuplicates);
+	// 	return setToReturn;
+	// }
 }
