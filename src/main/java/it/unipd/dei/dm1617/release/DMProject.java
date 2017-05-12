@@ -9,112 +9,122 @@ import org.apache.spark.mllib.feature.IDF;
 import org.apache.spark.mllib.linalg.Vector;
 import org.apache.spark.mllib.clustering.KMeans;
 import org.apache.spark.mllib.clustering.KMeansModel;
+import org.apache.spark.broadcast.Broadcast;
 import scala.Tuple2;
 
 import java.util.Arrays;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.HashSet;
+import java.util.Set;
 
 import org.apache.log4j.Logger;
 import org.apache.log4j.Level;
 
-
 /**
- * Example program to show the basic usage of some Spark utilities.
+ * Main class managing the input dataset and the k-median clustering.
+ * Reads the input data, lemmatizing it and representing it in TF-IDF format and runs the
+ * clustering algorithm.
  */
 public class DMProject {
 
+  /**
+   * Prints a list of the resulting clustering, showing the title of the wikipedia
+   * pages belonging to each cluster.
+   * @param lemmatizedPages [JavaRDD of wikipedia pages]
+   * @param tfidf           [TF-IDF transformation of the pages]
+   * @param kmed            [The trained K-Medoids model]
+   */
+  public static void printClustering(JavaRDD<WikiPage> lemmatizedPages, JavaRDD tfidf,
+                                     KMedoids kmed) {
+    System.out.println("\n\n------- RESULTING CLUSTERING --------");
+
+    JavaPairRDD<WikiPage, Vector> pagesAndVectors = lemmatizedPages.zip(tfidf);
+
+    List<Tuple2<WikiPage, Vector>> listPagesAndVectors
+        = new ArrayList<Tuple2<WikiPage, Vector>>(pagesAndVectors.collect());
+
+    for(int i = 0; i<kmed.getK(); i++) {
+      // Since each tfidf vector does not have a 1 to 1 correspondence to each WikiPage,
+      // a java collection "Set" which does not allow duplicates must be used.
+      Set<String> set1 = new HashSet();
+      System.out.println("\n\nK = "+i+ "");
+      for(int j = 0; j< kmed.finalPartition.get(i).size(); j++) {
+        for(Tuple2<WikiPage, Vector> tuple : listPagesAndVectors) {
+          // The title is printed only if it corresponds to a wikipedia page AND if the
+          // corresponding title has not been printed yet (the method .add(E) of Set returns true
+          // only if the element has not yet been added to the set).
+          if(tuple._2.equals(kmed.finalPartition.get(i).get(j).vector)
+              && set1.add(tuple._1.getTitle())) {
+            System.out.println(tuple._1.getTitle());
+          }
+        }            
+      }
+    }
+  }
+
   public static void main(String[] args) {
-    // Removes all the infodump shown on terminal by spark
+    // Removes all the infoormation shown on terminal by Spark.
     Logger.getLogger("org").setLevel(Level.OFF);
     Logger.getLogger("akka").setLevel(Level.OFF);
 
-    String dataPath = args[0];
-
-    // Usual setup
+    // Initializes Spark context.
     SparkConf conf = new SparkConf(true).setAppName("DMProject");
     JavaSparkContext sc = new JavaSparkContext(conf);
 
-    
     // ---------- UNCOMMENT THIS ON FIRST RUN --------------- //
-    // Lemmatize pages and saves them to a file so that we dont have to recompute the
-    // lematization everytime
+    // Lemmatize pages and saves them to a file so that the lemmatization will not have to be
+    // recomputed every time.
     // 
+    // String dataPath = args[0];
+    //
     // //Load dataset of pages
     // JavaRDD<WikiPage> pages = InputOutput.read(sc, dataPath);
     // 
     // JavaRDD<WikiPage> lemmatizedPages = Lemmatizer.lemmatizeWikiPages(pages).cache();
     // InputOutput.write(lemmatizedPages, "small-dataset-lemmas");
+    // -------------------------------------------------------//
     
-    // Reads lemmatized wikipedia pages
+    // ---------- COMMENT THIS ON FIRST RUN ----------------- //
+    // Reads lemmatized wikipedia pages.
     JavaRDD<WikiPage> lemmatizedPages = InputOutput.read(sc, "small-dataset-lemmas").cache();
+    // -------------------------------------------------------//
 
     JavaRDD<ArrayList<String>> lemmas = lemmatizedPages.map((p) -> {
         return new ArrayList<String>(Arrays.asList(p.getText().split(" ")));
     }).cache();
 
-
-    // Transform the sequence of lemmas in vectors of counts in a
-    // space of 100 dimensions, using the 100 top lemmas as the vocabulary.
-    // This invocation follows a common pattern used in Spark components:
-    //
-    //  - Build an instance of a configurable object, in this case CountVectorizer.
-    //  - Set the parameters of the algorithm implemented by the object
-    //  - Invoke the `transform` method on the configured object, yielding
-    //  - the transformed dataset.
-    //
-    // In this case we also cache the dataset because the next step,
-    // IDF, will perform two passes over it.
+    // Transforms the sequence of lemmas in vectors of counts in a space of the specified number of
+    // dimensions, using the said number of top lemmas as the vocabulary.
     JavaRDD<Vector> tf = new CountVectorizer()
-      .setVocabularySize(300)
+      .setVocabularySize(100)
       .transform(lemmas)
       .cache();
 
-    // Same as above, here we follow the same pattern, with a small
-    // addition. Some of these "configurable" objects configure their
-    // internal state by means of an invocation of their `fit` method
-    // on a dataset. In this case, the Inverse Document Frequence
-    // algorithm needs to know about the term frequencies across the
-    // entire input dataset before rescaling the counts of the single
-    // vectors, and this is what happens inside the `fit` method invocation.
+    // Converts the data in a TF-IDF representation.
     JavaRDD<Vector> tfidf = new IDF()
       .fit(tf)
       .transform(tf);
 
 
-
-    int[] numClusters = {9500};
+    // Sets the number of cluster and maximum iterations.
+    int[] numClusters = {900};
     int maxIterations = 1000;
+
+    // Flag used to verify whether to print the final clustering.
+    boolean returnFinalClustering = false;
     
-    for(int k : numClusters)
-    {
-        long start = System.nanoTime();
-        System.out.println("");
-        System.out.println("");
-        KMedoids kmed = new KMedoids(k, maxIterations, 1000L);
-        kmed.run(tfidf, sc);
-        double finish = (System.nanoTime() - start) / 1e9;
-        System.out.println("Done for k="+k+" in "+finish);
+    // Computes k-median clustering of the TF-IDF dataset.
+    for(int k : numClusters) {
+      long start = System.nanoTime();
+      KMedoids kmed = new KMedoids(k, maxIterations, 1000L, returnFinalClustering);
+      kmed.run(tfidf, sc);
+      double finish = (System.nanoTime() - start) / 1e9;
+      System.out.println("Done for k= " + k + " in " + finish + " seconds.");
+      
+      if(returnFinalClustering) {
+        printClustering(lemmatizedPages, tfidf, kmed);
+      }
     }
-
-    
-    for(int k : numClusters)
-    {    
-        long start = System.nanoTime();
-
-        KMeansModel clusters = KMeans.train(tfidf.rdd(), k, maxIterations, "random", 1000L);
-        
-        
-        double cost = clusters.computeCost(tfidf.rdd());
-        System.out.println("");
-        System.out.println("");
-        System.out.println("Cost: " + cost);
-
-        double finish = (System.nanoTime() - start) / 1e9;
-        System.out.println("Done for k="+k+" in "+finish);   
-    }
-
-
   }
-
 }
