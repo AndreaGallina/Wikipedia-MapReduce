@@ -108,7 +108,7 @@ public class DMProject {
 
 
     // Sets the number of cluster and maximum iterations.
-    int[] numClusters = {900};
+    int[] numClusters = {16};
     int maxIterations = 1000;
 
     // Flag used to verify whether to print the final clustering.

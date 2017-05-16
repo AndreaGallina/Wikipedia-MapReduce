@@ -35,12 +35,14 @@ public class KMedoids implements Serializable {
 	List<List<VectorWithNorm>> finalPartition;	// List containing the final clustering structure for
 																							// printing purposes.
 	boolean returnFinalClustering = false;		  // Whether to return the final clustering.
+	double bestCost; // Best cost function obtained
 
 	public KMedoids(int k, int maxIterations, long seed, boolean returnFinalClustering) {
 		this.k = k;
 		this.maxIterations = maxIterations;
 		this.seed = seed;
 		this.returnFinalClustering = returnFinalClustering;
+		bestCost = Double.POSITIVE_INFINITY;
 		if(returnFinalClustering) {
 			finalPartition = new ArrayList<List<VectorWithNorm>>(k);
 			for(int i=0; i<k; i++) {
@@ -99,7 +101,7 @@ public class KMedoids implements Serializable {
 				+ "return k= " + centers.size() +" clusters.");
 
 	  boolean converged = false;
-	  double cost = Double.POSITIVE_INFINITY;
+	  double cost = Double.POSITIVE_INFINITY; // Cost of the cluster calculated up to the i-th iteration
 	  int iteration = 0;
 
 		// Iterates until the maximum number of iterations has been reached or the objective
@@ -114,7 +116,7 @@ public class KMedoids implements Serializable {
 		
 			// Partitions the points into clusters. The key field of the map represents the index
 			// of the cluster, while the value field contains the points of the cluster.
-	    Map<Integer, List<VectorWithNorm>> clustersMap = data.mapPartitionsToPair((points) -> {
+	    JavaPairRDD<Integer, List<VectorWithNorm>> clustersMapRDD = data.mapPartitionsToPair((points) -> {
 
 	      List<VectorWithNorm> thisCenters = bcCenters.value();
 
@@ -163,7 +165,11 @@ public class KMedoids implements Serializable {
 	      clusterPoints.addAll(tuple2);
 
 	      return clusterPoints;
-	    }).collectAsMap();
+	    });
+
+	    // Returns the resulting clustering in a Map where keys correspond to the cluster indices
+	    // and the values correspond to the points belonging to that cluster. 
+	    Map<Integer, List<VectorWithNorm>> clustersMap = clustersMapRDD.collectAsMap();
 
 			// Destroy the broadcast variable.
 			bcCenters.destroy();
@@ -173,18 +179,23 @@ public class KMedoids implements Serializable {
 			System.out.println("Inizio calcolo medoidi iterazione " + iteration);
 			long start = System.nanoTime();
 
-			List<Tuple2<Integer, VectorWithNorm>> medoids
-				= new ArrayList<Tuple2<Integer, VectorWithNorm>>();
-
 			// Computes a new medoid for each cluster. Each medoid becomes the new center for its cluster.
-			for(Map.Entry<Integer, List<VectorWithNorm>> entry : clustersMap.entrySet()) {
-			  int i = entry.getKey();
-			  List<VectorWithNorm> points = entry.getValue();
-			  VectorWithNorm newMedoid = computeMedoid(points);
+			List<Tuple2<Integer,VectorWithNorm>> calcNewMedoids = clustersMapRDD.mapPartitions((clusters) -> {
+      	List<Tuple2<Integer,VectorWithNorm>> newMedoids = new ArrayList<>();
+      	while(clusters.hasNext())
+      	{
+        	Tuple2<Integer, List<VectorWithNorm>> cluster = clusters.next();
+        	int i = cluster._1();
+          List<VectorWithNorm> points = cluster._2();
+          VectorWithNorm newMedoid = computeMedoid(points);
+          newMedoids.add(new Tuple2<>(i, newMedoid));
+      	}
+      	return newMedoids.iterator();
+      }).collect();
 
-			  medoids.add(new Tuple2<>(i, newMedoid));
-			  centers.set(i, newMedoid);
-			}
+			// Set the new medoids as centers.
+      for(Tuple2<Integer, VectorWithNorm> newMedoid : calcNewMedoids)
+      	centers.set(newMedoid._1, newMedoid._2);
 
 			double finish = (System.nanoTime() - start) / 1e9;
 			System.out.println("Calcolo medoidi completato iterazione " + iteration + " in " + finish);
@@ -192,25 +203,30 @@ public class KMedoids implements Serializable {
 			// If the difference between the cost computed in this iteration (costAccum) and 
 			// the one computed during the previous iteration is not greater than the specified 
 			// threshold, then the objective function still has not converged.
-			if (Math.abs(cost-costAccum.value()) < epsilon) {
+			// This also ensures that the algorithm stops if the cost function increased during 
+			// the current iteration. 
+			if (cost-costAccum.value() < epsilon)
 			  converged = true;
 
-			  // If the user wants the final clustering, add each point to the finalPartition
-			  if(returnFinalClustering){ 
-			    for(Map.Entry<Integer, List<VectorWithNorm>> entry : clustersMap.entrySet()) {
-			    	int i = entry.getKey();
-			    	List<VectorWithNorm> points = entry.getValue();
-			    	finalPartition.get(i).addAll(points);
-			    }
-			  }
-	  	}
+		  // If the user wants the final clustering, add each point to the finalPartition
+		  // We also make sure that the cost in the current iteration hasn't increased,
+		  // in which case we simply keep the cluster obtained from the previous iteration.
+		  if(returnFinalClustering && cost>costAccum.value()){ 
+		    for(Map.Entry<Integer, List<VectorWithNorm>> entry : clustersMap.entrySet()) {
+        	int i = entry.getKey();
+        	List<VectorWithNorm> points = entry.getValue();
+        	finalPartition.get(i).clear(); // Clear the result of the previous iteration
+        	finalPartition.get(i).addAll(points);
+        }
+		  }
 	    
-			// Updates the cost.
+			// Updates the cost variables.
+			bestCost = cost>costAccum.value() ? costAccum.value() : cost;
 		  cost = costAccum.value();
 		  System.out.println("Fine iterazione " + iteration + "; costo:" + cost);
 		  iteration++;
 	  }
-	  System.out.println("KMedoids converged in " + iteration + " iterations with cost " + cost);
+	  System.out.println("KMedoids converged in " + iteration + " iterations with cost " + bestCost);
 	}
 
 
@@ -305,25 +321,4 @@ public class KMedoids implements Serializable {
 	    }
 	    return (2 / Math.PI) * Math.acos(cosine);
 	}
-
-	// Helper method per calcolare il numero di elementi uguali in una lista, non cancellare per il momento
-	// public Set<Vector> findDuplicates(List<VectorWithNorm> listContainingDuplicates)
-	// { 
-	// 	final Set<Vector> setToReturn = new HashSet(); 
-	// 	final Set<Vector> set1 = new HashSet();
-	// 	int numDuplicates = 0;
-
-	// 	for (VectorWithNorm vec : listContainingDuplicates)
-	// 	{
-	// 		if (set1.add(vec.vector))
-	// 		{
-	// 			setToReturn.add(vec.vector);
-	// 		}
-	// 		else
-	// 			numDuplicates++;
-	// 	}
-
-	// 	System.out.println(numDuplicates);
-	// 	return setToReturn;
-	// }
 }
