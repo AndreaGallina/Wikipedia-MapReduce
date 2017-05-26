@@ -9,7 +9,6 @@ import org.apache.spark.mllib.feature.IDF;
 import org.apache.spark.mllib.linalg.Vector;
 import org.apache.spark.mllib.clustering.KMeans;
 import org.apache.spark.mllib.clustering.KMeansModel;
-import org.apache.spark.broadcast.Broadcast;
 import scala.Tuple2;
 
 import java.util.Arrays;
@@ -17,6 +16,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.Scanner;
 
 import org.apache.log4j.Logger;
 import org.apache.log4j.Level;
@@ -68,27 +68,52 @@ public class DMProject {
     Logger.getLogger("org").setLevel(Level.OFF);
     Logger.getLogger("akka").setLevel(Level.OFF);
 
+    int k = 390;                            // Number of clusters
+    int vocabularySize = 100;               // Number of elements in each TFIDF vector
+    int numPartitions = 4;                  // Number of partitions
+    boolean returnFinalClustering = false;  // Whether to print the final clustering.
+    int maxIterations = 250;                // Max number of iterations
+    long seed = 1000L;                      // Seed of randomness
+    String dataPath = args[0];              // Input dataset path
+
+    Scanner scan = new Scanner(System.in);
+
+    System.out.print("Do you want to use the default parameters? (Y/N): ");
+    String res = scan.next();
+    if(res.equals("N") || res.equals("n"))
+    {
+      System.out.print("Enter the number of clusters (k): ");
+      k = scan.nextInt();
+
+      System.out.print("Enter the vocabulary size: ");
+      vocabularySize = scan.nextInt();
+
+      System.out.print("Enter the number of partitions: ");
+      numPartitions = scan.nextInt();
+
+      System.out.print("Do you want to print the final clustering? (Y/n): ");
+      res = scan.next();
+      if(res.equals("Y") || res.equals("y"))
+      {
+        returnFinalClustering = true;
+      }
+    }
+
     // Initializes Spark context.
     SparkConf conf = new SparkConf(true).setAppName("DMProject");
     JavaSparkContext sc = new JavaSparkContext(conf);
-
-    // ---------- UNCOMMENT THIS ON FIRST RUN --------------- //
-    // Lemmatize pages and saves them to a file so that the lemmatization will not have to be
-    // recomputed every time.
-    // 
-    // String dataPath = args[0];
-    //
-    // //Load dataset of pages
-    // JavaRDD<WikiPage> pages = InputOutput.read(sc, dataPath);
-    // 
-    // JavaRDD<WikiPage> lemmatizedPages = Lemmatizer.lemmatizeWikiPages(pages).cache();
-    // InputOutput.write(lemmatizedPages, "small-dataset-lemmas");
-    // -------------------------------------------------------//
     
-    // ---------- COMMENT THIS ON FIRST RUN ----------------- //
-    // Reads lemmatized wikipedia pages.
-    JavaRDD<WikiPage> lemmatizedPages = InputOutput.read(sc, "small-dataset-lemmas").cache();
-    // -------------------------------------------------------//
+    //Load dataset of pages
+    JavaRDD<WikiPage> pages = InputOutput.read(sc, dataPath);
+    
+    // Lemmatizes the Wikipedia pages.
+    JavaRDD<WikiPage> lemmatizedPages = Lemmatizer.lemmatizeWikiPages(pages).cache();
+    
+    // ----------------------------- //
+    // InputOutput.write(lemmatizedPages, "lemmatized-dataset");
+    // JavaRDD<WikiPage> lemmatizedPages = InputOutput.read(sc, "lemmatized-dataset").cache();
+    // ----------------------------- //
+
 
     JavaRDD<ArrayList<String>> lemmas = lemmatizedPages.map((p) -> {
         return new ArrayList<String>(Arrays.asList(p.getText().split(" ")));
@@ -97,7 +122,7 @@ public class DMProject {
     // Transforms the sequence of lemmas in vectors of counts in a space of the specified number of
     // dimensions, using the said number of top lemmas as the vocabulary.
     JavaRDD<Vector> tf = new CountVectorizer()
-      .setVocabularySize(100)
+      .setVocabularySize(vocabularySize)
       .transform(lemmas)
       .cache();
 
@@ -106,25 +131,21 @@ public class DMProject {
       .fit(tf)
       .transform(tf);
 
+    // Repartitions the dataset into numPartitions partitions
+    tfidf = tfidf.repartition(numPartitions);
 
-    // Sets the number of cluster and maximum iterations.
-    int[] numClusters = {16};
-    int maxIterations = 1000;
-
-    // Flag used to verify whether to print the final clustering.
-    boolean returnFinalClustering = false;
+    long start = System.nanoTime();
     
-    // Computes k-median clustering of the TF-IDF dataset.
-    for(int k : numClusters) {
-      long start = System.nanoTime();
-      KMedoids kmed = new KMedoids(k, maxIterations, 1000L, returnFinalClustering);
-      kmed.run(tfidf, sc);
-      double finish = (System.nanoTime() - start) / 1e9;
-      System.out.println("Done for k= " + k + " in " + finish + " seconds.");
-      
-      if(returnFinalClustering) {
-        printClustering(lemmatizedPages, tfidf, kmed);
-      }
+    // Computes k-medoids clustering of the TF-IDF dataset.
+    KMedoids kmed = new KMedoids(k, maxIterations, seed, returnFinalClustering);
+    kmed.run(tfidf, sc);
+
+    double finish = (System.nanoTime() - start) / 1e9;
+    System.out.println("Done for k= " + k + " in " + finish + " seconds.");
+    
+    // Prints the clustering if specified by the user
+    if(returnFinalClustering) {
+      printClustering(lemmatizedPages, tfidf, kmed);
     }
   }
 }

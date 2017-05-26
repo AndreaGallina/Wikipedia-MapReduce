@@ -17,7 +17,6 @@ import scala.Tuple2;
 import java.util.Arrays;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Random;
 import java.util.Map;
 import java.lang.Math;
 import java.io.Serializable;
@@ -107,7 +106,6 @@ public class KMedoids implements Serializable {
 		// Iterates until the maximum number of iterations has been reached or the objective
 		// function converges.
 	  while(iteration < maxIterations && !converged) {
-	    System.out.println("Inizio iterazione " + iteration);
 	    // Objective function cost accumulator.
 	    DoubleAccumulator costAccum = sc.sc().doubleAccumulator();
 
@@ -138,7 +136,7 @@ public class KMedoids implements Serializable {
 
 	        // Increases the objective function cost by the squared distance between
 	        // the point and its cluster's medoid.
-	        costAccum.add(Math.pow(bestPartition._2,2));
+	        costAccum.add(bestPartition._2);
 	              
 	        // Adds the point to its cluster.
 	        thisPartition.get(bestPartition._1).add(point);
@@ -151,8 +149,6 @@ public class KMedoids implements Serializable {
 	      for(int i=0; i<k; i++) {
 	        if(thisPartition.get(i).size()>0) {
 	          partitions.add(new Tuple2<>(i, thisPartition.get(i)));
-	        } else {
-	          System.out.println("Cluster "+i+" is empty");
 	        }
 	      }
 
@@ -174,9 +170,7 @@ public class KMedoids implements Serializable {
 			// Destroy the broadcast variable.
 			bcCenters.destroy();
 			    
-			System.out.println("Partizionamento completato iterazione " + iteration);
 
-			System.out.println("Inizio calcolo medoidi iterazione " + iteration);
 			long start = System.nanoTime();
 
 			// Computes a new medoid for each cluster. Each medoid becomes the new center for its cluster.
@@ -198,7 +192,6 @@ public class KMedoids implements Serializable {
       	centers.set(newMedoid._1, newMedoid._2);
 
 			double finish = (System.nanoTime() - start) / 1e9;
-			System.out.println("Calcolo medoidi completato iterazione " + iteration + " in " + finish);
 
 			// If the difference between the cost computed in this iteration (costAccum) and 
 			// the one computed during the previous iteration is not greater than the specified 
@@ -223,7 +216,6 @@ public class KMedoids implements Serializable {
 			// Updates the cost variables.
 			bestCost = cost>costAccum.value() ? costAccum.value() : cost;
 		  cost = costAccum.value();
-		  System.out.println("Fine iterazione " + iteration + "; costo:" + cost);
 		  iteration++;
 	  }
 	  System.out.println("KMedoids converged in " + iteration + " iterations with cost " + bestCost);
