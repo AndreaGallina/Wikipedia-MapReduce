@@ -34,7 +34,7 @@ public class KMedoids implements Serializable {
 	List<List<VectorWithNorm>> finalPartition;	// List containing the final clustering structure for
 																							// printing purposes.
 	boolean returnFinalClustering = false;		  // Whether to return the final clustering.
-	double bestCost; // Best cost function obtained
+	double bestCost; // Best cost function obtained.
 
 	public KMedoids(int k, int maxIterations, long seed, boolean returnFinalClustering) {
 		this.k = k;
@@ -95,12 +95,13 @@ public class KMedoids implements Serializable {
 
 	  // Warns the user that the data has less than K distinct points, hence the algorithm will
 	  // return less than K clusters.
-	  if(centers.size()<k)
+	  if(centers.size()<k) {
 	  	System.out.println("Could not find k= " + k + " distinct medoids; the algorithm will only "
 				+ "return k= " + centers.size() +" clusters.");
+	  }
 
 	  boolean converged = false;
-	  double cost = Double.POSITIVE_INFINITY; // Cost of the cluster calculated up to the i-th iteration
+	  double cost = Double.POSITIVE_INFINITY; // Clustering cost calculated up to the i-th iteration.
 	  int iteration = 0;
 
 		// Iterates until the maximum number of iterations has been reached or the objective
@@ -114,54 +115,54 @@ public class KMedoids implements Serializable {
 		
 			// Partitions the points into clusters. The key field of the map represents the index
 			// of the cluster, while the value field contains the points of the cluster.
-	    JavaPairRDD<Integer, List<VectorWithNorm>> clustersMapRDD = data.mapPartitionsToPair((points) -> {
+	    JavaPairRDD<Integer, List<VectorWithNorm>> clustersMapRDD =
+	    	data.mapPartitionsToPair((points) -> {
+					List<VectorWithNorm> thisCenters = bcCenters.value();
 
-	      List<VectorWithNorm> thisCenters = bcCenters.value();
+		      // Number of elements of a vector representing a document (equal to "vocabSize").
+		      int dims = thisCenters.get(0).vector.size(); 
+				
+					// Data structure that will contain the points divided into clusters.
+		      List<List<VectorWithNorm>> thisPartition = new ArrayList<List<VectorWithNorm>>(k);
+		      for(int i=0; i<k; i++) {
+		        thisPartition.add(new ArrayList<VectorWithNorm>());
+		      }
+				
+					// Adds each input point to its respective cluster.
+		      while(points.hasNext()) {
+		        VectorWithNorm point = points.next();
 
-	      // Number of elements of a vector representing a document (equal to "vocabSize").
-	      int dims = thisCenters.get(0).vector.size(); 
-			
-				// Data structure that will contain the points divided into clusters.
-	      List<List<VectorWithNorm>> thisPartition = new ArrayList<List<VectorWithNorm>>(k);
-	      for(int i=0; i<k; i++) {
-	        thisPartition.add(new ArrayList<VectorWithNorm>());
-	      }
-			
-				// Adds each input point to its respective cluster.
-	      while(points.hasNext()) {
-	        VectorWithNorm point = points.next();
+		      	// Finds the closest medoid to the input point and its distance.
+		        Tuple2<Integer, Double> bestPartition = findClosestMedoid(thisCenters, point);	                    
 
-	      	// Finds the closest medoid to the input point and its distance.
-	        Tuple2<Integer, Double> bestPartition = findClosestMedoid(thisCenters, point);	                    
+		        // Increases the objective function cost by the squared distance between the point and
+		        // its cluster's medoid.
+		        costAccum.add(bestPartition._2);
+		              
+		        // Adds the point to its cluster.
+		        thisPartition.get(bestPartition._1).add(point);
+		      }
+				
+		      List<Tuple2<Integer, List<VectorWithNorm>>> partitions = new ArrayList<>();
 
-	        // Increases the objective function cost by the squared distance between
-	        // the point and its cluster's medoid.
-	        costAccum.add(bestPartition._2);
-	              
-	        // Adds the point to its cluster.
-	        thisPartition.get(bestPartition._1).add(point);
-	      }
-			
-	      List<Tuple2<Integer, List<VectorWithNorm>>> partitions = new ArrayList<>();
+		      // For each cluster, initializes a tuple containing the index of the cluster and
+		      // the list of the points belonging to that cluster.
+		      for(int i=0; i<k; i++) {
+		        if(thisPartition.get(i).size()>0) {
+		          partitions.add(new Tuple2<>(i, thisPartition.get(i)));
+		        }
+		      }
 
-	      // For each cluster, initializes a tuple containing the index of the cluster and
-	      // the list of the points belonging to that cluster.
-	      for(int i=0; i<k; i++) {
-	        if(thisPartition.get(i).size()>0) {
-	          partitions.add(new Tuple2<>(i, thisPartition.get(i)));
-	        }
-	      }
+		      return partitions.iterator();
+		          
+		    }).reduceByKey((tuple1, tuple2) -> {
+		      // Merges all the points belonging to one cluster assigned by the different workers.
+		      List<VectorWithNorm> clusterPoints = new ArrayList<VectorWithNorm>();
+		      clusterPoints.addAll(tuple1);
+		      clusterPoints.addAll(tuple2);
 
-	      return partitions.iterator();
-	          
-	    }).reduceByKey((tuple1, tuple2) -> {
-	      // Merges all the points belonging to one cluster assigned by the different workers.
-	      List<VectorWithNorm> clusterPoints = new ArrayList<VectorWithNorm>();
-	      clusterPoints.addAll(tuple1);
-	      clusterPoints.addAll(tuple2);
-
-	      return clusterPoints;
-	    });
+		      return clusterPoints;
+		    });
 
 	    // Returns the resulting clustering in a Map where keys correspond to the cluster indices
 	    // and the values correspond to the points belonging to that cluster. 
@@ -174,22 +175,23 @@ public class KMedoids implements Serializable {
 			long start = System.nanoTime();
 
 			// Computes a new medoid for each cluster. Each medoid becomes the new center for its cluster.
-			List<Tuple2<Integer,VectorWithNorm>> calcNewMedoids = clustersMapRDD.mapPartitions((clusters) -> {
-      	List<Tuple2<Integer,VectorWithNorm>> newMedoids = new ArrayList<>();
-      	while(clusters.hasNext())
-      	{
-        	Tuple2<Integer, List<VectorWithNorm>> cluster = clusters.next();
-        	int i = cluster._1();
-          List<VectorWithNorm> points = cluster._2();
-          VectorWithNorm newMedoid = computeMedoid(points);
-          newMedoids.add(new Tuple2<>(i, newMedoid));
-      	}
-      	return newMedoids.iterator();
-      }).collect();
+			List<Tuple2<Integer,VectorWithNorm>> calcNewMedoids =
+				clustersMapRDD.mapPartitions((clusters) -> {
+	      	List<Tuple2<Integer,VectorWithNorm>> newMedoids = new ArrayList<>();
+	      	while(clusters.hasNext()) {
+	        	Tuple2<Integer, List<VectorWithNorm>> cluster = clusters.next();
+	        	int i = cluster._1();
+	          List<VectorWithNorm> points = cluster._2();
+	          VectorWithNorm newMedoid = computeMedoid(points);
+	          newMedoids.add(new Tuple2<>(i, newMedoid));
+	      	}
+	      	return newMedoids.iterator();
+	      }).collect();
 
 			// Set the new medoids as centers.
-      for(Tuple2<Integer, VectorWithNorm> newMedoid : calcNewMedoids)
+      for(Tuple2<Integer, VectorWithNorm> newMedoid : calcNewMedoids) {
       	centers.set(newMedoid._1, newMedoid._2);
+      }
 
 			double finish = (System.nanoTime() - start) / 1e9;
 
@@ -198,26 +200,28 @@ public class KMedoids implements Serializable {
 			// threshold, then the objective function still has not converged.
 			// This also ensures that the algorithm stops if the cost function increased during 
 			// the current iteration. 
-			if (cost-costAccum.value() < epsilon)
+			if (cost-costAccum.value() < epsilon) {
 			  converged = true;
+			}
 
 		  // If the user wants the final clustering, add each point to the finalPartition
 		  // We also make sure that the cost in the current iteration hasn't increased,
 		  // in which case we simply keep the cluster obtained from the previous iteration.
-		  if(returnFinalClustering && cost>costAccum.value()){ 
+		  if(returnFinalClustering && cost>costAccum.value()) { 
 		    for(Map.Entry<Integer, List<VectorWithNorm>> entry : clustersMap.entrySet()) {
         	int i = entry.getKey();
         	List<VectorWithNorm> points = entry.getValue();
-        	finalPartition.get(i).clear(); // Clear the result of the previous iteration
+        	finalPartition.get(i).clear(); // Clears the result of the previous iteration.
         	finalPartition.get(i).addAll(points);
         }
 		  }
 	    
 			// Updates the cost variables.
-			bestCost = cost>costAccum.value() ? costAccum.value() : cost;
+			bestCost = cost > costAccum.value() ? costAccum.value() : cost;
 		  cost = costAccum.value();
 		  iteration++;
 	  }
+
 	  System.out.println("KMedoids converged in " + iteration + " iterations with cost " + bestCost);
 	}
 

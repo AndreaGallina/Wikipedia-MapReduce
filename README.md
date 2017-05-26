@@ -1,7 +1,7 @@
 Data mining project
 ===================
 
-This is the actual source code of the Data Mining project.
+This is the source code of the Data Mining project.
 
 Project structure
 -----------------
@@ -43,10 +43,10 @@ Saving the lemmatization
 
 The two lines of commented code found in the block starting at line 112 
 in file "DMProject.java" can be used to, respectively, save and load the
-lemmatized dataset, so as you don't have to recompute the lemmatization 
-at each run.
+lemmatized dataset, so you do not have to recompute the lemmatization 
+during each run.
 
-Note that line 113 should only be called on the first time you run the main
+Note that line 113 should only be called the first time you run the main
 along with lines 107 and 110: after the lemmatized pages have been saved,
 these three lines can be commented out, while line 114 can be uncommented.
 

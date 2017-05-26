@@ -78,10 +78,10 @@ public class DMProject {
 
     Scanner scan = new Scanner(System.in);
 
+    // Allows the user to customize several parameters.
     System.out.print("Do you want to use the default parameters? (Y/N): ");
     String res = scan.next();
-    if(res.equals("N") || res.equals("n"))
-    {
+    if(res.equals("N") || res.equals("n")) {
       System.out.print("Enter the number of clusters (k): ");
       k = scan.nextInt();
 
@@ -93,17 +93,22 @@ public class DMProject {
 
       System.out.print("Do you want to print the final clustering? (Y/n): ");
       res = scan.next();
-      if(res.equals("Y") || res.equals("y"))
-      {
+      if(res.equals("Y") || res.equals("y")) {
         returnFinalClustering = true;
       }
     }
+
+    // Prints the parameters to be used by the clustering algorithm.
+    System.out.println("Clustering run with the following parameters:");
+    System.out.println("Number of clusters: " + k);
+    System.out.println("Vocabulary size: " + vocabularySize);
+    System.out.println("Number of partitions: " + numPartitions);
 
     // Initializes Spark context.
     SparkConf conf = new SparkConf(true).setAppName("DMProject");
     JavaSparkContext sc = new JavaSparkContext(conf);
     
-    //Load dataset of pages
+    // Loads the dataset of pages.
     JavaRDD<WikiPage> pages = InputOutput.read(sc, dataPath);
     
     // Lemmatizes the Wikipedia pages.
@@ -131,7 +136,7 @@ public class DMProject {
       .fit(tf)
       .transform(tf);
 
-    // Repartitions the dataset into numPartitions partitions
+    // Repartitions the dataset into numPartitions partitions.
     tfidf = tfidf.repartition(numPartitions);
 
     long start = System.nanoTime();
@@ -143,7 +148,7 @@ public class DMProject {
     double finish = (System.nanoTime() - start) / 1e9;
     System.out.println("Done for k= " + k + " in " + finish + " seconds.");
     
-    // Prints the clustering if specified by the user
+    // Prints the clustering if specified by the user.
     if(returnFinalClustering) {
       printClustering(lemmatizedPages, tfidf, kmed);
     }
