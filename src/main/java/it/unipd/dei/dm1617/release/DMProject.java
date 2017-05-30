@@ -68,13 +68,13 @@ public class DMProject {
     Logger.getLogger("org").setLevel(Level.OFF);
     Logger.getLogger("akka").setLevel(Level.OFF);
 
-    int k = 390;                            // Number of clusters
-    int vocabularySize = 100;               // Number of elements in each TFIDF vector
-    int numPartitions = 4;                  // Number of partitions
+    int k = 390;                            // Number of clusters.
+    int vocabularySize = 100;               // Number of elements in each TFIDF vector.
+    int numPartitions = 4;                  // Number of partitions.
+    int maxIterations = 250;                // Max number of iterations.
     boolean returnFinalClustering = false;  // Whether to print the final clustering.
-    int maxIterations = 250;                // Max number of iterations
-    long seed = 1000L;                      // Seed of randomness
-    String dataPath = args[0];              // Input dataset path
+    long seed = 1000L;                      // Randomness seed.
+    String dataPath = args[0];              // Input dataset path.
 
     Scanner scan = new Scanner(System.in);
 
@@ -82,16 +82,16 @@ public class DMProject {
     System.out.print("Do you want to use the default parameters? (Y/N): ");
     String res = scan.next();
     if(res.equals("N") || res.equals("n")) {
-      System.out.print("Enter the number of clusters (k): ");
+      System.out.print("Enter the number of clusters (k) (default: " + k + "): ");
       k = scan.nextInt();
 
-      System.out.print("Enter the vocabulary size: ");
+      System.out.print("Enter the vocabulary size (default: " + vocabularySize + "): ");
       vocabularySize = scan.nextInt();
 
-      System.out.print("Enter the number of partitions: ");
+      System.out.print("Enter the number of partitions (default: " + numPartitions + "): ");
       numPartitions = scan.nextInt();
 
-      System.out.print("Enter the maximum number of iterations: ");
+      System.out.print("Enter the maximum number of iterations (default: " + maxIterations + "): ");
       maxIterations = scan.nextInt();
 
       System.out.print("Do you want to print the final clustering? (Y/n): ");
