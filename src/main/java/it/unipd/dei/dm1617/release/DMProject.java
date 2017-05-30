@@ -91,6 +91,9 @@ public class DMProject {
       System.out.print("Enter the number of partitions: ");
       numPartitions = scan.nextInt();
 
+      System.out.print("Enter the maximum number of iterations: ");
+      maxIterations = scan.nextInt();
+
       System.out.print("Do you want to print the final clustering? (Y/n): ");
       res = scan.next();
       if(res.equals("Y") || res.equals("y")) {
@@ -103,6 +106,7 @@ public class DMProject {
     System.out.println("Number of clusters: " + k);
     System.out.println("Vocabulary size: " + vocabularySize);
     System.out.println("Number of partitions: " + numPartitions);
+    System.out.println("Maximum number of iterations: " + maxIterations + "\n");
 
     // Initializes Spark context.
     SparkConf conf = new SparkConf(true).setAppName("DMProject");
