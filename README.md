@@ -41,12 +41,12 @@ The final argument specifies the path to the dataset.
 Saving the lemmatization
 ------------------------------
 
-The two lines of commented code found in the block starting at line 112 
+The two lines of commented code found in the block starting at line 121 
 in file "DMProject.java" can be used to, respectively, save and load the
 lemmatized dataset, so you do not have to recompute the lemmatization 
 during each run.
 
-Note that line 113 should only be called the first time you run the main
-along with lines 107 and 110: after the lemmatized pages have been saved,
-these three lines can be commented out, while line 114 can be uncommented.
+Note that line 122 should only be called the first time you run the main
+along with lines 116 and 119: after the lemmatized pages have been saved,
+these three lines can be commented out, while line 123 can be uncommented.
 
